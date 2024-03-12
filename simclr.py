@@ -89,7 +89,11 @@ def main(rank: int, world_size: int, args):
     # Critic
     ##############################################################
 
-    critic = LinearCritic(net.representation_dim, temperature=args.temperature).to(device)
+    if world_size == 1 and args.checkpoint_prefix:
+        net = torch.load(f"{args.checkpoint_prefix}-net.pt")
+        critic = torch.load(f"{args.checkpoint_prefix}-critic.pt")
+    else:
+        critic = LinearCritic(net.representation_dim, temperature=args.temperature).to(device)
 
     # DCL Setup
     optimizer = optim.Adam(list(net.parameters()) + list(critic.parameters()), lr=args.lr, weight_decay=1e-6)
@@ -155,7 +159,7 @@ def main(rank: int, world_size: int, args):
         optimizer=optimizer,
     )
 
-    for epoch in range(0, args.num_epochs):
+    for epoch in range(args.initial_epoch, args.num_epochs):
         print(f"step: {epoch}")
 
         train_loss = trainer.train()
@@ -218,6 +222,8 @@ if __name__ == "__main__":
     parser.add_argument('--dataset', type=str, default=str(SupportedDatasets.CIFAR100.value), help='dataset',
                         choices=[x.value for x in SupportedDatasets])
     parser.add_argument('--subset-indices', type=str, default="", help="Path to subset indices")
+    parser.add_argument('--checkpoint-prefix', type=str, default="", help="Prefix of checkpoint to load")
+    parser.add_argument('--initial-epoch', type=int, default=0, help="Epoch to start at")
     parser.add_argument('--random-subset', action="store_true", help="Random subset")
     parser.add_argument('--subset-fraction', type=float, help="Size of Subset as fraction (only needed for random subset)")
     parser.add_argument('--device', type=int, default=-1, help="GPU number to use")
@@ -229,7 +235,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Arguments check and initialize global variables
-    device = "cpu"
+    device = "mps" if torch.backends.mps.is_available() else "cpu"
     device_ids = None
     distributed = False
     if torch.cuda.is_available():

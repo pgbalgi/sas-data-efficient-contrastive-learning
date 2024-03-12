@@ -66,7 +66,7 @@ def main(rank: int, world_size: int, args: int):
     # Model and Optimizer
     ##############################################################
 
-    net = torch.load(args.encoder).to(device)
+    net = torch.load(args.encoder, map_location=device).to(device)
 
     clf = nn.Linear(net.representation_dim, datasets.num_classes).to(device)
     if args.distributed:
@@ -107,13 +107,13 @@ def main(rank: int, world_size: int, args: int):
     for epoch in range(args.num_epochs):
         train_loss = train_clf(epoch)
         if not args.distributed or rank == 0:
-            acc, top5acc = test_clf(testloader, device, net, clf)
+            acc = test_clf(testloader, device, net, clf)
             wandb.log(
                 {
                     "test":
                     {
                         "acc": acc,
-                        "top5acc": top5acc
+                        # "top5acc": top5acc
                     },
                     "train":
                     {
@@ -172,7 +172,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Arguments check and initialize global variables
-    device = "cpu"
+    device = "mps" if torch.backends.mps.is_available() else "cpu"
     device_ids = None
     distributed = False
     if torch.cuda.is_available():

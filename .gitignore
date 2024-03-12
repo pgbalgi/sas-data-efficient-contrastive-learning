@@ -5,3 +5,4 @@ wandb
 *.pt
 imagenet-subset
 *.pkl
+.DS_Store
