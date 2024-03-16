@@ -1,6 +1,7 @@
 import argparse
 import os
 import random
+import time
 
 import numpy as np
 from sas.subset_dataset import CustomSubsetDataset
@@ -125,6 +126,10 @@ def main(rank: int, world_size: int, args: int):
             if acc > best_acc:
                 best_acc = acc
     
+        # Checkpoint Model
+        if (args.checkpoint_freq > 0) and ((not args.distributed or rank == 0) and (epoch + 1) % args.checkpoint_freq == 0):
+            torch.save(clf, f"{int(time.time())}-{args.dataset}-{epoch}-clf.pt")
+
     if not args.distributed or rank == 0:
         print("Best test accuracy", best_acc, "%")
         wandb.log(
@@ -161,6 +166,7 @@ if __name__ == "__main__":
     parser.add_argument("--nesterov", action="store_true", help="Turn on Nesterov style momentum")
     parser.add_argument("--encoder", type=str, default='ckpt.pth', help='Pretrained encoder')
     parser.add_argument('--temperature', type=float, default=0.5, help='InfoNCE temperature')
+    parser.add_argument("--checkpoint-freq", type=int, default=100, help="How often to checkpoint model")
     parser.add_argument('--dataset', type=str, default=str(SupportedDatasets.CIFAR100.value), help='dataset',
                         choices=[x.value for x in SupportedDatasets])
     parser.add_argument('--device', type=int, default=-1, help="GPU number to use")
