@@ -1,7 +1,7 @@
 import argparse
 import os
 import pickle
-from datetime import datetime
+import time
 import random
 
 import numpy as np
@@ -135,7 +135,7 @@ def main(rank: int, world_size: int, args):
     ##############################################################
 
     # Date Time String
-    DT_STRING = "".join(str(datetime.now()).split())
+    DT_STRING = str(int(time.time()))
 
     if args.distributed:
         ddp_setup(rank, world_size, str(args.port))
