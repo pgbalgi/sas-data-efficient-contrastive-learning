@@ -78,37 +78,86 @@ def main(rank: int, world_size: int, args: int):
                             weight_decay=args.weight_decay)
 
     ##############################################################
+    # Encode Data
+    ##############################################################
+
+    def encode_data(dataloader):
+        all_encodings = torch.zeros((len(dataloader.dataset), net.representation_dim), device=device)
+        all_targets = torch.zeros(len(dataloader.dataset), device=device, dtype=torch.int64)
+
+        net.eval()
+        t = tqdm(enumerate(dataloader), total=len(dataloader))
+        for batch_idx, (inputs, targets) in t:
+            inputs, targets = inputs.to(device), targets.to(device)
+            representation = net(inputs).detach()
+
+            indices = (batch_idx * args.batch_size) + torch.arange(targets.numel())
+            all_encodings[indices] = representation
+            all_targets[indices] = targets
+
+        return all_encodings, all_targets
+
+    train_encodings, train_targets = encode_data(clftrainloader)
+    test_encodings, test_targets = encode_data(testloader)
+
+    ##############################################################
     # Train Function
     ##############################################################
 
-    def train_clf(epoch):
-        print('\nEpoch %d' % epoch)
-        net.eval()
+    def train_clf():
         clf.train()
         train_loss = 0
-        t = tqdm(enumerate(clftrainloader), desc='Loss: **** ', total=len(clftrainloader), bar_format='{desc}{bar}{r_bar}')
-        for batch_idx, (inputs, targets) in t:
+        permutation = torch.randperm(train_targets.size(0))
+        for idx in range(0, train_targets.size(0), args.batch_size):
             clf_optimizer.zero_grad()
-            inputs, targets = inputs.to(device), targets.to(device)
-            representation = net(inputs).detach()
+            indices = permutation[idx:min(idx+args.batch_size, permutation.size(0))]
+            representation, targets = train_encodings[indices], train_targets[indices]
             predictions = clf(representation)
             loss = criterion(predictions, targets)
             loss.backward()
             clf_optimizer.step()
 
-            train_loss += loss.item()
+            train_loss += loss.item() * targets.size(0)
 
-            t.set_description('Loss: %.3f ' % (train_loss / (batch_idx + 1)))
+        train_loss /= train_targets.size(0)
         return train_loss
     
     ##############################################################
+    # Test Function
+    ##############################################################
+
+    def test_clf():
+        clf.eval()
+        test_clf_loss = 0
+        correct = 0
+        acc_per_point = []
+        with torch.no_grad():
+            for idx in range(0, test_targets.size(0), args.batch_size):
+                indices = torch.arange(idx, min(idx+args.batch_size, test_targets.size(0)))
+                representation, targets = test_encodings[indices], test_targets[indices]
+                raw_scores = clf(representation)
+                clf_loss = criterion(raw_scores, targets)
+                test_clf_loss += clf_loss.item() * targets.size(0)
+                _, predicted = raw_scores.max(1)
+                acc_per_point.append(predicted.eq(targets))
+                correct += acc_per_point[-1].sum().item()
+                
+        test_clf_loss /= test_targets.size(0)
+        acc = 100. * correct / test_targets.size(0)
+        return test_clf_loss, acc
+
+    ##############################################################
     # Main Loop
     ##############################################################     
+
+    # Date Time String
+    DT_STRING = str(int(time.time()))
+
     best_acc = 0
     for epoch in range(args.num_epochs):
-        train_loss = train_clf(epoch)
+        train_loss = train_clf()
         if not args.distributed or rank == 0:
-            acc = test_clf(testloader, device, net, clf)
+            test_loss, acc = test_clf()
             wandb.log(
                 {
                     "test":
@@ -125,10 +174,11 @@ def main(rank: int, world_size: int, args: int):
             )
             if acc > best_acc:
                 best_acc = acc
-    
-        # Checkpoint Model
-        if (args.checkpoint_freq > 0) and ((not args.distributed or rank == 0) and (epoch + 1) % args.checkpoint_freq == 0):
-            torch.save(clf, f"{int(time.time())}-{args.dataset}-{epoch}-clf.pt")
+                # torch.save(clf, f"{DT_STRING}-{args.dataset}-clf.pt")
+            if (epoch + 1) % 10 == 0:
+                print('\nEpoch %d' % epoch)
+                print('Train Loss: %.3f ' % (train_loss))
+                print('Test Loss: %.3f | Test Acc: %.3f%% ' % (test_loss, acc))
 
     if not args.distributed or rank == 0:
         print("Best test accuracy", best_acc, "%")
@@ -166,7 +216,6 @@ if __name__ == "__main__":
     parser.add_argument("--nesterov", action="store_true", help="Turn on Nesterov style momentum")
     parser.add_argument("--encoder", type=str, default='ckpt.pth', help='Pretrained encoder')
     parser.add_argument('--temperature', type=float, default=0.5, help='InfoNCE temperature')
-    parser.add_argument("--checkpoint-freq", type=int, default=100, help="How often to checkpoint model")
     parser.add_argument('--dataset', type=str, default=str(SupportedDatasets.CIFAR100.value), help='dataset',
                         choices=[x.value for x in SupportedDatasets])
     parser.add_argument('--device', type=int, default=-1, help="GPU number to use")
@@ -186,7 +235,7 @@ if __name__ == "__main__":
             if args.device >= 0:
                 device = args.device
             else:
-                device = 0
+                device = "cuda"
         else:
             distributed = True
             device_ids = [int(id) for id in args.device_ids]
