@@ -163,6 +163,7 @@ def main(rank: int, world_size: int, args: int):
                     "test":
                     {
                         "acc": acc,
+                        "loss": test_loss,
                         # "top5acc": top5acc
                     },
                     "train":

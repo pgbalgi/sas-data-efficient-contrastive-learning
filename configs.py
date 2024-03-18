@@ -55,40 +55,38 @@ def get_datasets(dataset: str, augment_clf_train=False, add_indices_to_data=Fals
         img_size = 32
 
     transform_train = transforms.Compose([
+        transforms.ToImage(),
+        transforms.ToDtype(torch.uint8, scale=True),
         transforms.RandomResizedCrop(img_size, interpolation=Image.BICUBIC),
         transforms.RandomHorizontalFlip(),
         ColourDistortion(s=0.5),
-        transforms.ToTensor(),
+        transforms.ToDtype(torch.float32, scale=True),
         transforms.Normalize(*CACHED_MEAN_STD[dataset]),
     ])
 
     if dataset == SupportedDatasets.IMAGENET.value:
         transform_test = transforms.Compose([
+            transforms.ToImage(),
+            transforms.ToDtype(torch.uint8, scale=True),
             transforms.Resize(256),
             transforms.CenterCrop(224),
-            transforms.ToTensor(),
+            transforms.ToDtype(torch.float32, scale=True),
             transforms.Normalize(*CACHED_MEAN_STD[dataset]),
         ])
     else:
         transform_test = transforms.Compose([
-            transforms.ToTensor(),
+            transforms.ToImage(),
+            transforms.ToDtype(torch.float32, scale=True),
             transforms.Normalize(*CACHED_MEAN_STD[dataset]),
         ])
 
     if augment_clf_train:
         transform_clftrain = transforms.Compose([
+            transforms.ToImage(),
+            transforms.ToDtype(torch.uint8, scale=True),
             transforms.RandomResizedCrop(img_size, interpolation=Image.BICUBIC),
             transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(*CACHED_MEAN_STD[dataset]),
-        ])
-    else:
-        transform_clftrain = transform_test
-    if augment_clf_train:
-        transform_clftrain = transforms.Compose([
-            transforms.RandomResizedCrop(img_size, interpolation=Image.BICUBIC),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
+            transforms.ToDtype(torch.float32, scale=True),
             transforms.Normalize(*CACHED_MEAN_STD[dataset]),
         ])
     else:
