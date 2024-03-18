@@ -1,5 +1,5 @@
 from PIL import ImageFilter
-from torchvision import transforms
+from torchvision.transforms import v2 as transforms
 
 
 def ColourDistortion(s=1.0):

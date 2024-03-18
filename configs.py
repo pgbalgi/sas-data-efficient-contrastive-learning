@@ -2,7 +2,7 @@ from enum import Enum
 import json
 
 import torchvision
-import torchvision.transforms as transforms
+from torchvision.transforms import v2 as transforms
 
 from collections import namedtuple
 from data_proc.augmentation import ColourDistortion
