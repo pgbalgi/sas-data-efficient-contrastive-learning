@@ -7,18 +7,26 @@ import random
 import numpy as np
 import sas.subset_dataset
 import torch
+import torchvision
 import torch.multiprocessing as mp
 import torch.optim as optim
 from torch.distributed import destroy_process_group, init_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
+from torchvision.transforms import v2
 import wandb
 
-from configs import SupportedDatasets, get_datasets
+from configs import SupportedDatasets, get_datasets, get_transforms
 from projection_heads.critic import LinearCritic
 from resnet import *
 from trainer import Trainer
 from util import Random
+
+cifar100_transform = get_transforms(SupportedDatasets.CIFAR100.value, kornia=True).train
+
+def cifar100_collate_fn(batch):
+    batch = torch.utils.data.default_collate(batch)
+    return [cifar100_transform(batch[0]), cifar100_transform(batch[0])]
 
 def main(rank: int, world_size: int, args):
 
@@ -46,6 +54,12 @@ def main(rank: int, world_size: int, args):
 
     print('==> Preparing data..')
     datasets = get_datasets(args.dataset)
+
+    collate_fn = None
+    if not args.distributed and args.dataset == SupportedDatasets.CIFAR100.value:
+        collate_fn = cifar100_collate_fn
+        cifar100_trainset = torchvision.datasets.CIFAR100(root='./data/cifar100/', train=True, download=True, transform=v2.ToImage())
+        datasets = datasets._replace(trainset=cifar100_trainset)
 
     ##############################################################
     # Load Subset Indices
@@ -110,7 +124,8 @@ def main(rank: int, world_size: int, args):
         batch_size=args.batch_size,
         shuffle=(not args.distributed),
         sampler=DistributedSampler(trainset, shuffle=True, num_replicas=world_size, rank=rank, drop_last=True) if args.distributed else None,
-        num_workers=4,
+        num_workers=3,
+        collate_fn=collate_fn,
         pin_memory=True,
     )
 
@@ -118,7 +133,7 @@ def main(rank: int, world_size: int, args):
         dataset=datasets.clftrainset,
         batch_size=args.batch_size, 
         shuffle=False, 
-        num_workers=4, 
+        num_workers=0, 
         pin_memory=True
     )
 
@@ -126,7 +141,7 @@ def main(rank: int, world_size: int, args):
         dataset=datasets.testset,
         batch_size=args.batch_size, 
         shuffle=False, 
-        num_workers=4,
+        num_workers=0,
         pin_memory=True,
     )
     

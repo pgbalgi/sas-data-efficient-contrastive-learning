@@ -3,6 +3,8 @@ import json
 
 import torchvision
 from torchvision.transforms import v2 as transforms
+import kornia.augmentation as aug
+from kornia.constants import Resample
 
 from collections import namedtuple
 from data_proc.augmentation import ColourDistortion
@@ -17,8 +19,9 @@ class SupportedDatasets(Enum):
     STL10 = "stl10"
 
 Datasets = namedtuple('Datasets', 'trainset testset clftrainset num_classes stem')
+Transforms = namedtuple('Transforms', 'train test clftrain')
 
-def get_datasets(dataset: str, augment_clf_train=False, add_indices_to_data=False, num_positive=2):
+def get_transforms(dataset: str, augment_clf_train=False, kornia=False):
 
     CACHED_MEAN_STD = {
         SupportedDatasets.CIFAR10.value: ((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
@@ -27,22 +30,6 @@ def get_datasets(dataset: str, augment_clf_train=False, add_indices_to_data=Fals
         SupportedDatasets.TINY_IMAGENET.value: ((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
         SupportedDatasets.IMAGENET.value: ((0.485, 0.456, 0.3868), (0.2309, 0.2262, 0.2237))
     }
-
-    PATHS = {
-        SupportedDatasets.CIFAR10.value: '/data/cifar10/',
-        SupportedDatasets.CIFAR100.value: '/data/cifar100/',
-        SupportedDatasets.STL10.value: '/data/stl10/',
-        SupportedDatasets.TINY_IMAGENET.value: '/data/tiny_imagenet/',
-        SupportedDatasets.IMAGENET.value: '/data/ILSVRC/'
-    }
-
-    try:
-        with open('dataset-paths.json', 'r') as f:
-            local_paths = json.load(f)
-            PATHS.update(local_paths)
-    except FileNotFoundError:
-        pass
-    root = PATHS[dataset]
 
     # Data
     if dataset == SupportedDatasets.STL10.value:
@@ -54,15 +41,27 @@ def get_datasets(dataset: str, augment_clf_train=False, add_indices_to_data=Fals
     else:
         img_size = 32
 
-    transform_train = transforms.Compose([
-        transforms.ToImage(),
-        transforms.ToDtype(torch.uint8, scale=True),
-        transforms.RandomResizedCrop(img_size, interpolation=Image.BICUBIC),
-        transforms.RandomHorizontalFlip(),
-        ColourDistortion(s=0.5),
-        transforms.ToDtype(torch.float32, scale=True),
-        transforms.Normalize(*CACHED_MEAN_STD[dataset]),
-    ])
+    s = 0.5
+    if kornia:
+        transform_train = transforms.Compose([
+            transforms.ToImage(),
+            transforms.ToDtype(torch.float32, scale=True),
+            aug.RandomResizedCrop((img_size,img_size), resample=Resample.BICUBIC),
+            aug.RandomHorizontalFlip(),
+            aug.ColorJitter(0.8*s, 0.8*s, 0.8*s, 0.2*s, p=0.8),
+            aug.RandomGrayscale(p=0.2),
+            aug.Normalize(*CACHED_MEAN_STD[dataset]),
+        ])
+    else:
+        transform_train = transforms.Compose([
+            transforms.ToImage(),
+            transforms.ToDtype(torch.uint8, scale=True),
+            transforms.RandomResizedCrop(img_size, interpolation=Image.BICUBIC),
+            transforms.RandomHorizontalFlip(),
+            ColourDistortion(s=s),
+            transforms.ToDtype(torch.float32, scale=True),
+            transforms.Normalize(*CACHED_MEAN_STD[dataset]),
+        ])
 
     if dataset == SupportedDatasets.IMAGENET.value:
         transform_test = transforms.Compose([
@@ -81,17 +80,47 @@ def get_datasets(dataset: str, augment_clf_train=False, add_indices_to_data=Fals
         ])
 
     if augment_clf_train:
-        transform_clftrain = transforms.Compose([
-            transforms.ToImage(),
-            transforms.ToDtype(torch.uint8, scale=True),
-            transforms.RandomResizedCrop(img_size, interpolation=Image.BICUBIC),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToDtype(torch.float32, scale=True),
-            transforms.Normalize(*CACHED_MEAN_STD[dataset]),
-        ])
+        if kornia:
+            transform_clftrain = transforms.Compose([
+                transforms.ToImage(),
+                transforms.ToDtype(torch.float32, scale=True),
+                aug.RandomResizedCrop((img_size,img_size), interpolation=Resample.BICUBIC),
+                aug.RandomHorizontalFlip(),
+                aug.Normalize(*CACHED_MEAN_STD[dataset]),
+            ])
+        else:
+            transform_clftrain = transforms.Compose([
+                transforms.ToImage(),
+                transforms.ToDtype(torch.uint8, scale=True),
+                transforms.RandomResizedCrop(img_size, interpolation=Image.BICUBIC),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToDtype(torch.float32, scale=True),
+                transforms.Normalize(*CACHED_MEAN_STD[dataset]),
+            ])
     else:
         transform_clftrain = transform_test
 
+    return Transforms(train=transform_train, clftrain=transform_clftrain, test=transform_test)
+
+def get_datasets(dataset: str, augment_clf_train=False, add_indices_to_data=False, num_positive=2):
+
+    PATHS = {
+        SupportedDatasets.CIFAR10.value: '/data/cifar10/',
+        SupportedDatasets.CIFAR100.value: '/data/cifar100/',
+        SupportedDatasets.STL10.value: '/data/stl10/',
+        SupportedDatasets.TINY_IMAGENET.value: '/data/tiny_imagenet/',
+        SupportedDatasets.IMAGENET.value: '/data/ILSVRC/'
+    }
+
+    try:
+        with open('dataset-paths.json', 'r') as f:
+            local_paths = json.load(f)
+            PATHS.update(local_paths)
+    except FileNotFoundError:
+        pass
+    root = PATHS[dataset]
+
+    transform_train, transform_clftrain, transform_test = get_transforms(dataset, augment_clf_train)
     trainset = testset = clftrainset = num_classes = stem = None
     
     if dataset == SupportedDatasets.CIFAR100.value:
