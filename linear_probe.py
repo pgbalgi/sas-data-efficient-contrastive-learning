@@ -51,7 +51,7 @@ def main(rank: int, world_size: int, args: int):
         dataset=CustomSubsetDataset(datasets.testset, subset_indices=range(1000)), 
         batch_size=args.batch_size, 
         shuffle=False,
-        num_workers=4, 
+        num_workers=0, 
         pin_memory=True
     )
     clftrainloader = torch.utils.data.DataLoader(
@@ -59,7 +59,7 @@ def main(rank: int, world_size: int, args: int):
         batch_size=args.batch_size, 
         shuffle=not args.distributed,
         sampler=DistributedSampler(CustomSubsetDataset(datasets.clftrainset, subset_indices=range(1000)), shuffle=True) if args.distributed else None,
-        num_workers=4, 
+        num_workers=2, 
         pin_memory=True
     )
 
