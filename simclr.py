@@ -124,7 +124,7 @@ def main(rank: int, world_size: int, args):
         batch_size=args.batch_size,
         shuffle=(not args.distributed),
         sampler=DistributedSampler(trainset, shuffle=True, num_replicas=world_size, rank=rank, drop_last=True) if args.distributed else None,
-        num_workers=3,
+        num_workers=1,
         collate_fn=collate_fn,
         pin_memory=True,
     )
