@@ -70,6 +70,7 @@ def main(rank: int, world_size: int, args):
             dataset=datasets.trainset,
             subset_fraction=args.subset_fraction
         )
+        trainset.save_to_file(f"cifar100-{args.subset_fraction}-random-indices.pkl")
     elif args.subset_indices != "":
         with open(args.subset_indices, "rb") as f:
             subset_indices = pickle.load(f)

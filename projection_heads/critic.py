@@ -20,22 +20,11 @@ class LinearCritic(nn.Module):
         return self.bn2(self.w2(self.relu(self.bn1(self.w1(h)))))
 
     def compute_sim(self, z):
-        p = []
-        for i in range(len(z)):
-            p.append(self.project(z[i]))
-        
-        sim = {}
-        for i in range(len(p)):
-            for j in range(i, len(p)):
-                sim[(i, j)] = self.cossim(p[i].unsqueeze(-2), p[j].unsqueeze(-3)) / self.temperature
+        p = self.project(z)
+        p = nn.functional.normalize(p, dim=-1)
 
-        d = sim[(0,1)].shape[-1]
-        for i in range(len(p)):
-            sim[(i,i)][..., range(d), range(d)] = float('-inf')   
-
-        for i in range(len(p)):
-            sim[i] = torch.cat([sim[(j, i)].transpose(-1, -2) for j in range(0, i)] + [sim[(i, j)] for j in range(i, len(p))], dim=-1)
-        sim = torch.cat([sim[i] for i in range(len(p))], dim=-2)
+        sim = (p @ p.T) / self.temperature
+        sim.fill_diagonal_(float('-inf'))
         
         return sim
 

@@ -70,26 +70,14 @@ class Trainer():
                         aug_z[-1].append(z[i * batch_size: (i+1) * batch_size])
                     else:
                         aug_z[-1].append(all_z[rank][i * batch_size: (i+1) * batch_size])
-            z = [torch.cat(aug_z_i, dim=0) for aug_z_i in aug_z]
-        else: 
-            aug_z = []
-            for i in range(num_positive):
-                aug_z.append(z[i * batch_size : (i + 1) * batch_size])
-            z = aug_z
+            z = torch.cat([torch.cat(aug_z_i, dim=0) for aug_z_i in aug_z])
 
         sim = self.critic(z)
         #print(sim)
         log_sum_exp_sim = torch.log(torch.sum(torch.exp(sim), dim=1))
-        # Positive Pairs Mask 
-        p_targets = torch.cat([torch.tensor(range(int(len(sim) / num_positive)))] * num_positive)
-        #len(p_targets)
-        pos_pairs = (p_targets.unsqueeze(1) == p_targets.unsqueeze(0)).to(self.device)
-        #print(pos_pairs)
-        inf_mask = (sim != float('-inf')).to(self.device)
-        pos_pairs = torch.logical_and(pos_pairs, inf_mask)
-        pos_count = torch.sum(pos_pairs, dim=1)
-        pos_sims = torch.nansum(sim * pos_pairs, dim=-1)
-        return torch.mean(-pos_sims / pos_count + log_sum_exp_sim)
+        pos_sims = torch.diagonal(sim, offset=batch_size)
+        pos_sims = torch.cat([pos_sims, pos_sims])
+        return torch.mean(-pos_sims + log_sum_exp_sim)
     
     #########################################
     #           Train & Test Modules        #
