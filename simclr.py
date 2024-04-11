@@ -61,6 +61,9 @@ def main(rank: int, world_size: int, args):
         cifar100_trainset = torchvision.datasets.CIFAR100(root='./data/cifar100/', train=True, download=True, transform=v2.ToImage())
         datasets = datasets._replace(trainset=cifar100_trainset)
 
+    # Date Time String
+    DT_STRING = str(int(time.time()))
+
     ##############################################################
     # Load Subset Indices
     ##############################################################
@@ -70,7 +73,7 @@ def main(rank: int, world_size: int, args):
             dataset=datasets.trainset,
             subset_fraction=args.subset_fraction
         )
-        trainset.save_to_file(f"cifar100-{args.subset_fraction}-random-indices.pkl")
+        trainset.save_to_file(f"{DT_STRING}-cifar100-{args.subset_fraction}-random-indices.pkl")
     elif args.subset_indices != "":
         with open(args.subset_indices, "rb") as f:
             subset_indices = pickle.load(f)
@@ -150,9 +153,6 @@ def main(rank: int, world_size: int, args):
     # Main Loop (Train, Test)
     ##############################################################
 
-    # Date Time String
-    DT_STRING = str(int(time.time()))
-
     if args.distributed:
         ddp_setup(rank, world_size, str(args.port))
 
@@ -203,12 +203,13 @@ def main(rank: int, world_size: int, args):
             trainer.save_checkpoint(prefix=f"{DT_STRING}-{args.dataset}-{args.arch}-{epoch}")
 
     if not args.distributed or rank == 0:
-        print(f"best_test_acc: {trainer.best_acc}")
-        wandb.log(
-            data={"test": {
-            "best_acc": trainer.best_acc,
-            }}
-        )
+        if args.test_freq > 0:
+            print(f"best_test_acc: {trainer.best_acc}")
+            wandb.log(
+                data={"test": {
+                "best_acc": trainer.best_acc,
+                }}
+            )
         wandb.finish(quiet=True)
 
     if args.distributed:
