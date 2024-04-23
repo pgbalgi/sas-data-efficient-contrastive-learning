@@ -18,7 +18,7 @@ def encode_train_set(clftrainloader, device, net):
             representation = net(inputs)
             store.append((representation, targets))
 
-            t.set_description('Encoded %d/%d' % (batch_idx, len(clftrainloader)))
+            t.set_description('Encoded %d/%d' % (batch_idx+1, len(clftrainloader)))
 
     X, y = zip(*store)
     X, y = torch.cat(X, dim=0), torch.cat(y, dim=0)
@@ -99,6 +99,38 @@ def train_clf(X, y, representation_dim, num_classes, device, reg_weight=1e-3, it
             return loss
 
         clf_optimizer.step(closure)
+
+    return clf
+
+def train_clf_sgd(X, y, representation_dim, num_classes, device, batch_size=500, lr=0.01, momentum=0.9, nesterov=True, reg_weight=1e-3, iter=500):
+    print('\nL2 Regularization weight: %g' % reg_weight)
+
+    criterion = nn.CrossEntropyLoss()
+    n_lbfgs_steps = iter
+
+    # Should be reset after each epoch for a completely independent evaluation
+    clf = nn.Linear(representation_dim, num_classes).to(device)
+    clf_optimizer = optim.SGD(clf.parameters(), lr=lr, momentum=momentum, nesterov=nesterov,
+                              weight_decay=reg_weight)
+    clf.train()
+
+    t = tqdm(range(n_lbfgs_steps), desc='Loss: **** | Train Acc: ****% ', bar_format='{desc}{bar}{r_bar}')
+    for _ in t:
+        permutation = torch.randperm(X.size(0))
+        for idx in range(0, X.size(0), batch_size):
+            clf_optimizer.zero_grad()
+            indices = permutation[idx:min(idx+batch_size, permutation.size(0))]
+            X_batch, y_batch = X[indices], y[indices]
+            raw_scores = clf(X_batch)
+            loss = criterion(raw_scores, y_batch)
+            loss.backward()
+            clf_optimizer.step()
+
+        raw_scores = clf(X)
+        loss = criterion(raw_scores, y)
+        correct = raw_scores.argmax(dim=1).eq(y).sum().item()
+
+        t.set_description('Loss: %.3f | Train Acc: %.3f%% ' % (loss, 100. * correct / y.shape[0]))
 
     return clf
 

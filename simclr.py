@@ -22,7 +22,12 @@ from resnet import *
 from trainer import Trainer
 from util import Random
 
+cifar10_transform = get_transforms(SupportedDatasets.CIFAR10.value, kornia=True).train
 cifar100_transform = get_transforms(SupportedDatasets.CIFAR100.value, kornia=True).train
+
+def cifar10_collate_fn(batch):
+    batch = torch.utils.data.default_collate(batch)
+    return [cifar10_transform(batch[0]), cifar10_transform(batch[0])]
 
 def cifar100_collate_fn(batch):
     batch = torch.utils.data.default_collate(batch)
@@ -36,15 +41,6 @@ def main(rank: int, world_size: int, args):
         device = args.device_ids[rank]
         torch.cuda.set_device(args.device_ids[rank])
         args.lr *= world_size
-
-    # WandB Logging
-    if not args.distributed or rank == 0:
-        wandb.init(
-            project="data-efficient-contrastive-learning",
-            config=args
-        )
-
-    if args.distributed:
         args.batch_size = int(args.batch_size / world_size)
 
     # Set all seeds
@@ -56,10 +52,16 @@ def main(rank: int, world_size: int, args):
     datasets = get_datasets(args.dataset)
 
     collate_fn = None
-    if not args.distributed and args.dataset == SupportedDatasets.CIFAR100.value:
-        collate_fn = cifar100_collate_fn
-        cifar100_trainset = torchvision.datasets.CIFAR100(root='./data/cifar100/', train=True, download=True, transform=v2.ToImage())
-        datasets = datasets._replace(trainset=cifar100_trainset)
+    if not args.distributed:
+        if args.dataset == SupportedDatasets.CIFAR10.value:
+            collate_fn = cifar10_collate_fn
+            cifar10_trainset = torchvision.datasets.CIFAR10(root='./data/cifar10/', train=True, download=True, transform=v2.ToImage())
+            datasets = datasets._replace(trainset=cifar10_trainset)
+
+        if args.dataset == SupportedDatasets.CIFAR100.value:
+            collate_fn = cifar100_collate_fn
+            cifar100_trainset = torchvision.datasets.CIFAR100(root='./data/cifar100/', train=True, download=True, transform=v2.ToImage())
+            datasets = datasets._replace(trainset=cifar100_trainset)
 
     # Date Time String
     DT_STRING = str(int(time.time()))
@@ -73,7 +75,7 @@ def main(rank: int, world_size: int, args):
             dataset=datasets.trainset,
             subset_fraction=args.subset_fraction
         )
-        trainset.save_to_file(f"{DT_STRING}-cifar100-{args.subset_fraction}-random-indices.pkl")
+        trainset.save_to_file(f"{DT_STRING}-{args.dataset}-{args.subset_fraction}-random-indices.pkl")
     elif args.subset_indices != "":
         with open(args.subset_indices, "rb") as f:
             subset_indices = pickle.load(f)
@@ -83,6 +85,8 @@ def main(rank: int, world_size: int, args):
         )
     else:
         trainset = datasets.trainset
+
+    args.subset_fraction = len(trainset) / len(datasets.trainset)
     print("subset_size:", len(trainset))
 
     # Model
@@ -153,6 +157,13 @@ def main(rank: int, world_size: int, args):
     # Main Loop (Train, Test)
     ##############################################################
 
+    # WandB Logging
+    if not args.distributed or rank == 0:
+        wandb.init(
+            project="data-efficient-contrastive-learning",
+            config=args
+        )
+
     if args.distributed:
         ddp_setup(rank, world_size, str(args.port))
 
@@ -188,19 +199,33 @@ def main(rank: int, world_size: int, args):
                 step=epoch
             )
 
-        if (args.test_freq > 0) and (not args.distributed or rank == 0) and ((epoch + 1) % args.test_freq == 0):
-            test_acc = trainer.test()
-            print(f"test_acc: {test_acc}")
-            wandb.log(
-                data={"test": {
-                "acc": test_acc,
-                }},
-                step=epoch
-            )
+        if (args.test_freq > 0) and (not args.distributed or rank == 0):
+            epochs_left = args.num_epochs - epoch
+            if epochs_left < 100:
+                test_freq = args.test_freq
+            elif epochs_left < 200:
+                test_freq = 25
+            elif epochs_left < 400:
+                test_freq = 50
+            else:
+                test_freq = 100
+
+            if (epoch + 1) % test_freq == 0:
+                test_acc = trainer.test()
+                print(f"test_acc: {test_acc}")
+                wandb.log(
+                    data={"test": {
+                    "acc": test_acc,
+                    }},
+                    commit=True,
+                    step=epoch
+                )
 
         # Checkpoint Model
         if (args.checkpoint_freq > 0) and ((not args.distributed or rank == 0) and (epoch + 1) % args.checkpoint_freq == 0):
-            trainer.save_checkpoint(prefix=f"{DT_STRING}-{args.dataset}-{args.arch}-{epoch}")
+            subset_frac = round(args.subset_fraction,2)
+            subset_str = f"{subset_frac}-{args.subset_type.lower()}" if args.subset_type is not None else subset_frac
+            trainer.save_checkpoint(prefix=f"{DT_STRING}-{args.dataset}-{subset_str}-{args.arch}-{epoch}")
 
     if not args.distributed or rank == 0:
         if args.test_freq > 0:
@@ -243,6 +268,8 @@ if __name__ == "__main__":
     parser.add_argument('--initial-epoch', type=int, default=0, help="Epoch to start at")
     parser.add_argument('--random-subset', action="store_true", help="Random subset")
     parser.add_argument('--subset-fraction', type=float, help="Size of Subset as fraction (only needed for random subset)")
+    parser.add_argument('--subset-type', type=str, help="Type of subset",
+                        choices=["Random", "SAS", "KITTY", "Uniform KITTY"])
     parser.add_argument('--device', type=int, default=-1, help="GPU number to use")
     parser.add_argument("--device-ids", nargs = "+", default = None, help = "Specify device ids if using multiple gpus")
     parser.add_argument('--port', type=int, default=random.randint(49152, 65535), help="free port to use")
