@@ -86,6 +86,8 @@ def main(rank: int, world_size: int, args):
     else:
         trainset = datasets.trainset
 
+    if len(trainset) == len(datasets.trainset):
+        args.subset_type = "Full"
     args.subset_fraction = len(trainset) / len(datasets.trainset)
     print("subset_size:", len(trainset))
 
