@@ -271,7 +271,7 @@ if __name__ == "__main__":
     parser.add_argument('--random-subset', action="store_true", help="Random subset")
     parser.add_argument('--subset-fraction', type=float, help="Size of Subset as fraction (only needed for random subset)")
     parser.add_argument('--subset-type', type=str, help="Type of subset",
-                        choices=["Random", "SAS", "KITTY", "Uniform KITTY"])
+                        choices=["Random", "SAS", "KITTY", "Uniform KITTY", "Low Curvature", "High Curvature"])
     parser.add_argument('--device', type=int, default=-1, help="GPU number to use")
     parser.add_argument("--device-ids", nargs = "+", default = None, help = "Specify device ids if using multiple gpus")
     parser.add_argument('--port', type=int, default=random.randint(49152, 65535), help="free port to use")
